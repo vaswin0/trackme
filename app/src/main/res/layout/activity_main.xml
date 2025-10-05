@@ -25,4 +25,23 @@
         android:layout_height="wrap_content"
         android:text="Start Tracking" />
 
+
+    <TextView
+        android:id="@+id/distance_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Distance: 0.00 km"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:padding="8dp"/>
+
+    <TextView
+        android:id="@+id/time_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Time: 00:00:00"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:padding="8dp"/>
+
 </LinearLayout>

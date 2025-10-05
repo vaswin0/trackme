@@ -35,6 +35,12 @@ import com.google.android.gms.location.LocationSettingsRequest // For building t
 import com.google.android.gms.location.LocationSettingsStatusCodes // For checking status codes
 
 
+// 4. Statistics Tracking Variables
+private lateinit var distanceText: TextView
+private lateinit var timeText: TextView
+private var totalDistanceMeters = 0.0     // Total distance accumulated
+private var startTimeMillis: Long = 0     // Timestamp when tracking started
+private var lastKnownLocation: android.location.Location? = null // For distance calculation
 
 
 @Suppress("DEPRECATION")
@@ -77,6 +83,9 @@ class MainActivity : AppCompatActivity() {
         map = findViewById(R.id.osm_map)
         trackButton = findViewById(R.id.track_button)
         statusText = findViewById(R.id.status_text)
+
+        distanceText = findViewById(R.id.distance_text) // ADD THIS LINE
+        timeText = findViewById(R.id.time_text)       // ADD THIS LINE
 
         // Initialize the location client
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
@@ -228,46 +237,81 @@ class MainActivity : AppCompatActivity() {
     // Replace your existing 'private val locationCallback = object : LocationCallback() { ... }' block:
 
     // 8. Location Callback (Where the magic happens when a new location arrives)
+// REPLACE your existing private val locationCallback = object : LocationCallback() { ... }
+
+    // 8. Location Callback (Where the magic happens when a new location arrives)
     private val locationCallback = object : LocationCallback() {
         override fun onLocationResult(locationResult: LocationResult) {
             locationResult.lastLocation?.let { location ->
                 val newLocation = GeoPoint(location.latitude, location.longitude)
 
-                // 1. Record the point for the trail
+                // *** STATS CALCULATION START ***
+                // 1. Calculate distance (path length)
+                lastKnownLocation?.let { lastLoc ->
+                    val distanceSegment = location.distanceTo(lastLoc) // distance in meters
+                    totalDistanceMeters += distanceSegment
+                }
+                lastKnownLocation = location // Update the reference for the next segment
+
+                // 2. Calculate time
+                val elapsedMillis = System.currentTimeMillis() - startTimeMillis
+
+                // 3. Update stats UI
+                updateStats(totalDistanceMeters, elapsedMillis)
+                // *** STATS CALCULATION END ***
+
+
+                // 4. Record the point for the trail
                 pathPoints.add(newLocation)
 
-                // 2. Update the Polyline trail
+                // 5. Update the Polyline trail
                 trailOverlay.setPoints(pathPoints)
 
-                // 3. Ensure the trail is on the map (only adds it once)
+                // 6. Ensure the trail is on the map
                 if (!map.overlays.contains(trailOverlay)) {
                     map.overlays.add(trailOverlay)
                 }
 
-                // 4. Update map center
+                // 7. Update map center and marker
                 map.controller.animateTo(newLocation)
-
-                // 5. Update the single, moving marker
                 addOrUpdateMarker(newLocation)
 
-                // 6. Update status text
+                // 8. Update status text and redraw
                 updateStatus("Lat: ${location.latitude}, Lon: ${location.longitude}")
-
-                // 7. Force map redraw
                 map.invalidate()
             }
         }
     }
 
     // 9. Function to start location updates
+//    @SuppressLint("MissingPermission") // We check permissions in checkLocationPermission()
+//    private fun startLocationUpdates() {
+//        fusedLocationClient.requestLocationUpdates(
+//            locationRequest,
+//            locationCallback,
+//            Looper.getMainLooper()
+//        )
+//        trackButton.text = "STOP TRACKING"
+//    }
+
+    // REPLACE your existing private fun startLocationUpdates() { ... }
+
+    // 9. Function to start location updates and reset stats
     @SuppressLint("MissingPermission") // We check permissions in checkLocationPermission()
     private fun startLocationUpdates() {
+        // Reset Stats for new session
+        totalDistanceMeters = 0.0
+        startTimeMillis = System.currentTimeMillis()
+        lastKnownLocation = null
+        updateStats(0.0, 0) // Display initial "0" stats
+
         fusedLocationClient.requestLocationUpdates(
             locationRequest,
             locationCallback,
             Looper.getMainLooper()
         )
         trackButton.text = "STOP TRACKING"
+        updateStatus("Tracking started.")
     }
 
 //    // 10. Function to stop location updates
@@ -280,24 +324,27 @@ class MainActivity : AppCompatActivity() {
 // Replace your existing 'private fun stopLocationUpdates() { ... }' block:
 
     // 10. Function to stop location updates and clear the trail
+// REPLACE your existing private fun stopLocationUpdates() { ... }
+
+    // 10. Function to stop location updates (keeps trail/marker visible)
     private fun stopLocationUpdates() {
         fusedLocationClient.removeLocationUpdates(locationCallback)
 
-        // Reset the trail
-        if (map.overlays.contains(trailOverlay)) {
-            map.overlays.remove(trailOverlay)
-        }
-        pathPoints.clear() // Clear the recorded coordinates
+        // Calculate final elapsed time
+        val finalElapsedMillis = System.currentTimeMillis() - startTimeMillis
 
-        // Remove the marker
-        currentLocationMarker?.let { map.overlays.remove(it) }
-        currentLocationMarker = null
+        // Update final stats display
+        updateStats(totalDistanceMeters, finalElapsedMillis)
+
+        // --- PERSISTENCE: REMOVED THE CODE THAT CLEARS THE MARKER AND TRAIL ---
+        // The trailOverlay and currentLocationMarker remain on the map.
+
+        // Reset path data for the *next* session
+        pathPoints.clear()
 
         trackButton.text = "START TRACKING"
-        updateStatus("Tracking stopped. Trail cleared.")
-        map.invalidate()
+        updateStatus("Tracking stopped. Final stats shown.")
     }
-
 
     // 11. Helper function for status updates
     private fun updateStatus(message: String) {
@@ -361,7 +408,25 @@ class MainActivity : AppCompatActivity() {
     }
 
 
+// ADD this new helper function to the class body
 
+    // Helper function to format and display statistics
+    private fun updateStats(distance: Double, time: Long) {
+        // 1. Format Distance (Meters to Kilometers, 2 decimal places)
+        val distanceKm = distance / 1000.0
+        val distanceString = String.format("Distance: %.2f km", distanceKm)
+
+        // 2. Format Time (Milliseconds to HH:MM:SS)
+        val seconds = (time / 1000) % 60
+        val minutes = (time / (1000 * 60) % 60)
+        val hours = (time / (1000 * 60 * 60) % 24)
+        val timeString = String.format("Time: %02d:%02d:%02d", hours, minutes, seconds)
+
+        runOnUiThread {
+            distanceText.text = distanceString
+            timeText.text = timeString
+        }
+    }
 
 
 }
