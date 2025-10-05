@@ -26,7 +26,13 @@ import org.osmdroid.views.overlay.Marker // IMPORTANT for adding the location ma
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory // ADD THIS IMPORT
 import org.osmdroid.views.overlay.Polyline // ADD THIS LINE
 
-
+import android.app.Activity // For Activity.RESULT_OK in onActivityResult
+import android.content.Intent // For Intent in onActivityResult
+import android.content.IntentSender // For the IntentSender.SendIntentException
+import com.google.android.gms.common.api.ApiException // For handling location setting errors
+import com.google.android.gms.common.api.ResolvableApiException // For the GPS resolution dialog
+import com.google.android.gms.location.LocationSettingsRequest // For building the check request
+import com.google.android.gms.location.LocationSettingsStatusCodes // For checking status codes
 
 
 
@@ -52,7 +58,11 @@ class MainActivity : AppCompatActivity() {
     private val trailOverlay = Polyline()             // The actual line drawn on the map
     private var currentLocationMarker: Marker? = null  // Holds the single, moving marker
 
+    // Add this near the top of your class properties (e.g., after the DEFAULT_START_POINT)
 
+    companion object {
+        private const val REQUEST_CHECK_SETTINGS = 0x1
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -101,7 +111,8 @@ class MainActivity : AppCompatActivity() {
                 // Check if FINE location was granted (the most accurate)
                 permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true -> {
                     // Permission granted! We can now initialize the location-dependent features.
-                    setupMapAndLocation()
+                    //setupMapAndLocation()
+                    checkLocationSettings()
                 }
                 // Check if only COARSE location was granted (less accurate)
                 permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true -> {
@@ -110,19 +121,22 @@ class MainActivity : AppCompatActivity() {
                 }
                 // Permission denied
                 else -> {
-                    // 🛑 The user denied access.
+                    //  The user denied access.
                     statusText.text = "Error: Location permission denied. Map is restricted."
                     setupMapAndLocation() // Initialize map without location features
                 }
             }
         }
 
+
+
     private fun checkLocationPermissions() {
         // Check if permissions are already granted
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             // Permissions are already granted, proceed directly to setup
             //setupMapAndLocation()
-            startLocationUpdates()
+            //startLocationUpdates()
+            checkLocationSettings()
         } else {
             // Permissions not granted, launch the request dialog
             requestPermissionLauncher.launch(
@@ -133,6 +147,43 @@ class MainActivity : AppCompatActivity() {
             )
         }
     }
+
+
+    // Add this function below your existing checkLocationPermissions()
+
+    private fun checkLocationSettings() {
+        val settingsClient = LocationServices.getSettingsClient(this)
+
+        // 1. Check if the location settings are satisfied
+        settingsClient.checkLocationSettings(
+            LocationSettingsRequest.Builder()
+                .addLocationRequest(locationRequest)
+                .setAlwaysShow(true) // Crucial to always show the dialog if settings are off
+                .build()
+        )
+            .addOnSuccessListener {
+                // 2. Settings are OK, proceed to request location updates
+                startLocationUpdates()
+            }
+            .addOnFailureListener { e ->
+                when ((e as ApiException).statusCode) {
+                    // 3. Location settings are NOT satisfied, show dialog
+                    LocationSettingsStatusCodes.RESOLUTION_REQUIRED -> try {
+                        // Show the user a dialog to correct the settings
+                        (e as ResolvableApiException).startResolutionForResult(this, REQUEST_CHECK_SETTINGS)
+                    } catch (sie: IntentSender.SendIntentException) {
+                        // Ignore the error.
+                    }
+                    // 4. Other failure states (e.g., location mode is too low)
+                    LocationSettingsStatusCodes.SETTINGS_CHANGE_UNAVAILABLE -> {
+                        updateStatus("Location settings are inadequate, and cannot be fixed here.")
+                    }
+                }
+            }
+    }
+
+
+
 
     // New function to handle map and location initialization AFTER permission is granted
     private fun setupMapAndLocation() {
@@ -150,7 +201,7 @@ class MainActivity : AppCompatActivity() {
     // ... we will add more functions here later ...
 
     // 7. Location Request Definition
-    private val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000) // Update every 5 seconds
+    private val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 2000) // Update every 5 seconds
         .setMinUpdateIntervalMillis(2000) // Not faster than 2 seconds
         .build()
 
@@ -286,6 +337,27 @@ class MainActivity : AppCompatActivity() {
             currentLocationMarker!!.position = point
         }
         // No map.invalidate() here, as it's called at the end of locationCallback
+    }
+
+
+
+    // Add this function anywhere in the body of your MainActivity class:
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        when (requestCode) {
+            REQUEST_CHECK_SETTINGS -> when (resultCode) {
+                Activity.RESULT_OK -> {
+                    // The user agreed to make required location settings changes
+                    updateStatus("GPS is now ON. Starting tracking.")
+                    startLocationUpdates()
+                }
+                Activity.RESULT_CANCELED -> {
+                    // The user did not make the required changes
+                    updateStatus("GPS is required for tracking. Please enable it.")
+                }
+            }
+        }
     }
 
 
